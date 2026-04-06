@@ -41,31 +41,16 @@ async function getShopifyVariantData(variantId) {
   }
 }
 
-async function updateSubscription(subscriptionId, originalPrice, discountValue) {
-  // Get current properties
-  const getResponse = await fetch(
-    `https://api.rechargeapps.com/subscriptions/${subscriptionId}`,
-    {
-      headers: {
-        'X-Recharge-Access-Token': process.env.RECHARGE_API_KEY,
-        'X-Recharge-Version': '2021-11'
-      }
-    }
-  )
-  const getData = await getResponse.json()
-  const subscription = getData.subscription
+async function updateSubscription(subscriptionId, originalPrice, discountValue, existingProps) {
 
-  if (!subscription) return
+  const currentPriceProp = existingProps.find(p => p.name === '_subscription_original_price')?.value
+  const currentDiscountProp = existingProps.find(p => p.name === '_subscription_discount')?.value
 
-  const currentPriceProp = subscription?.properties?.find(p => p.name === '_subscription_original_price')?.value
-  const currentDiscountProp = subscription?.properties?.find(p => p.name === '_subscription_discount')?.value
   if (currentPriceProp === `$${originalPrice}` && currentDiscountProp === `$${discountValue}`) {
-    return console.log('⏭ Already updated, skipping to avoid loop')
+    return console.log('⏭ Already updated in this charge, skipping')
   }
-
-  console.log(`💰 currentPrice: $${subscription.price}, originalPrice: $${originalPrice}, discountValue: $${discountValue}`)
-
-  const otherProps = (subscription?.properties || []).filter(
+  
+  const otherProps = existingProps.filter(
     p => !['_subscription_original_price', '_subscription_discount'].includes(p.name)
   )
 
@@ -151,7 +136,8 @@ export default async function handler(req, res) {
     await updateSubscription(
       subscriptionId,
       originalPrice.toFixed(2),
-      discountValue.toFixed(2)
+      discountValue.toFixed(2),
+      item.properties || []
     )
   }
 
