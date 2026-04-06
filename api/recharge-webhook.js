@@ -62,7 +62,7 @@ async function updateSubscription(subscriptionId, originalPrice, discountValue) 
   if (currentPriceProp === `$${originalPrice}` && currentDiscountProp === `$${discountValue}`) {
     return console.log('⏭ Already updated, skipping to avoid loop')
   }
-  
+
   console.log(`💰 currentPrice: $${subscription.price}, originalPrice: $${originalPrice}, discountValue: $${discountValue}`)
 
   const otherProps = (subscription?.properties || []).filter(
@@ -100,16 +100,18 @@ export default async function handler(req, res) {
   }
 
   const topic = req.headers['x-recharge-topic']
-  console.log(`📩 Webhook topic: ${topic}`);
-  console.log(`📩 Webhook body:`, req?.body);
+  console.log(`📩 Webhook topic: ${topic}`)
 
   if (!req.body?.charge) {
     console.log('⏭ No charge data, skipping')
     return res.status(200).json({ skipped: true })
   }
 
-  const charge = req.body.charge
-  const lineItems = charge.line_items || []
+  const charge = req.body.charge;
+  const lineItems = charge.line_items || [];
+
+  console.log('Line items:', lineItems)
+  
 
   for (const item of lineItems) {
     if (item.purchase_item_type === 'onetime') {
