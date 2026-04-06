@@ -109,9 +109,6 @@ export default async function handler(req, res) {
   const charge = req.body.charge;
   const lineItems = charge.line_items || [];
 
-  console.log('Line items:', lineItems)
-
-
   for (const item of lineItems) {
     const itemType = (item.type || item.purchase_item_type || '').toLowerCase();
     if (itemType === 'onetime') {
