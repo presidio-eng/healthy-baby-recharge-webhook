@@ -100,7 +100,8 @@ export default async function handler(req, res) {
   }
 
   const topic = req.headers['x-recharge-topic']
-  console.log(`📩 Webhook topic: ${topic}`)
+  console.log(`📩 Webhook topic: ${topic}`);
+  console.log(`📩 Webhook body:`, req?.body);
 
   if (!req.body?.charge) {
     console.log('⏭ No charge data, skipping')
