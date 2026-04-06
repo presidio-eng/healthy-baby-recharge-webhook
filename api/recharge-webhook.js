@@ -66,14 +66,13 @@ async function updateSubscription(subscriptionId, originalPrice, discountValue) 
   console.log(`💰 currentPrice: $${subscription.price}, originalPrice: $${originalPrice}, discountValue: $${discountValue}`)
 
   const otherProps = (subscription?.properties || []).filter(
-    p => !['_subscription_original_price', '_subscription_discount', '_recharge_webhook'].includes(p.name)
+    p => !['_subscription_original_price', '_subscription_discount'].includes(p.name)
   )
 
   const updatedProperties = [
     ...otherProps,
     { name: '_subscription_original_price', value: `$${originalPrice}` },
-    { name: '_subscription_discount', value: `$${discountValue}` },
-    { name: '_recharge_webhook', value: 'true' }
+    { name: '_subscription_discount', value: `$${discountValue}` }
   ]
 
   const putResponse = await fetch(
