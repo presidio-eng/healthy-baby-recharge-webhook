@@ -111,7 +111,7 @@ export default async function handler(req, res) {
   const lineItems = charge.line_items || [];
 
   console.log('Line items:', lineItems)
-  
+
 
   for (const item of lineItems) {
     if (item.purchase_item_type === 'onetime') {
@@ -119,7 +119,7 @@ export default async function handler(req, res) {
       continue
     }
 
-    const subscriptionId = item.purchase_item_id
+    const subscriptionId = item.subscription_id
     if (!subscriptionId) continue
 
     const productId = item.external_product_id?.ecommerce
