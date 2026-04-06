@@ -114,20 +114,22 @@ export default async function handler(req, res) {
 
 
   for (const item of lineItems) {
-    if (item.purchase_item_type === 'onetime') {
+    const itemType = (item.type || item.purchase_item_type || '').toLowerCase();
+    if (itemType === 'onetime') {
       console.log(`⏭ Skipping onetime item`)
       continue
     }
 
-    const subscriptionId = item.subscription_id
-    if (!subscriptionId) continue
+    const subscriptionId = item.subscription_id || item.purchase_item_id;
+    const productId = item.shopify_product_id || (item.external_product_id?.ecommerce);
+    const variantId = item.shopify_variant_id || (item.external_variant_id?.ecommerce);
 
-    const productId = item.external_product_id?.ecommerce
-    const variantId = item.external_variant_id?.ecommerce
-    if (!variantId) continue
+    if (!subscriptionId || !variantId) {
+      console.log(`⚠️ Missing IDs for ${item.title}: Sub=${subscriptionId}, Var=${variantId}`);
+      continue;
+    }
 
     const currentPrice = parseFloat(item.unit_price || item.price)
-
     console.log(`📦 Charge item: subscription ${subscriptionId}, variant ${variantId}`)
 
     const shopifyVariant = await getShopifyVariantData(variantId)
