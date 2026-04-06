@@ -42,14 +42,15 @@ async function getShopifyVariantData(variantId) {
 }
 
 async function updateSubscription(subscriptionId, originalPrice, discountValue, existingProps) {
-
   const currentPriceProp = existingProps.find(p => p.name === '_subscription_original_price')?.value
   const currentDiscountProp = existingProps.find(p => p.name === '_subscription_discount')?.value
+
+  console.log(`✅ Existion Props: ${JSON.stringify(existingProps)}`)
 
   if (currentPriceProp === `$${originalPrice}` && currentDiscountProp === `$${discountValue}`) {
     return console.log('⏭ Already updated in this charge, skipping')
   }
-  
+
   const otherProps = existingProps.filter(
     p => !['_subscription_original_price', '_subscription_discount'].includes(p.name)
   )
