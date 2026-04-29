@@ -87,7 +87,7 @@ export default async function handler(req, res) {
   const topic = req.headers['x-recharge-topic']
   console.log(`📩 Webhook topic: ${topic}`)
 
-  // Підтримка і charge і order
+  // Support charge adn order
   const charge = req.body?.charge
   const order = req.body?.order
   const lineItems = charge?.line_items || order?.line_items || []
