@@ -45,7 +45,7 @@ async function updateSubscription(subscriptionId, originalPrice, discountValue, 
   const currentPriceProp = existingProps.find(p => p.name === '_subscription_original_price')?.value
   const currentDiscountProp = existingProps.find(p => p.name === '_subscription_discount')?.value
 
-  console.log(`✅ Existion Props: ${JSON.stringify(existingProps)}`)
+  console.log(`✅ Existing Props: ${JSON.stringify(existingProps)}`)
 
   if (currentPriceProp === `$${originalPrice}` && currentDiscountProp === `$${discountValue}`) {
     return console.log('⏭ Already updated in this charge, skipping')
@@ -87,13 +87,15 @@ export default async function handler(req, res) {
   const topic = req.headers['x-recharge-topic']
   console.log(`📩 Webhook topic: ${topic}`)
 
-  if (!req.body?.charge) {
-    console.log('⏭ No charge data, skipping')
+  // Підтримка і charge і order
+  const charge = req.body?.charge
+  const order = req.body?.order
+  const lineItems = charge?.line_items || order?.line_items || []
+
+  if (!charge && !order) {
+    console.log('⏭ No charge or order data, skipping')
     return res.status(200).json({ skipped: true })
   }
-
-  const charge = req.body.charge;
-  const lineItems = charge.line_items || [];
 
   for (const item of lineItems) {
     const itemType = (item.type || item.purchase_item_type || '').toLowerCase();
@@ -103,16 +105,16 @@ export default async function handler(req, res) {
     }
 
     const subscriptionId = item.subscription_id || item.purchase_item_id;
-    const productId = item.shopify_product_id || (item.external_product_id?.ecommerce);
-    const variantId = item.shopify_variant_id || (item.external_variant_id?.ecommerce);
+    const productId = item.shopify_product_id || item.external_product_id?.ecommerce;
+    const variantId = item.shopify_variant_id || item.external_variant_id?.ecommerce;
 
     if (!subscriptionId || !variantId) {
-      console.log(`⚠️ Missing IDs for ${item.title}: Sub=${subscriptionId}, Var=${variantId}`);
-      continue;
+      console.log(`⚠️ Missing IDs: Sub=${subscriptionId}, Var=${variantId}`)
+      continue
     }
 
     const currentPrice = parseFloat(item.unit_price || item.price)
-    console.log(`📦 Charge item: subscription ${subscriptionId}, variant ${variantId}`)
+    console.log(`📦 Item: subscription ${subscriptionId}, variant ${variantId}`)
 
     const shopifyVariant = await getShopifyVariantData(variantId)
 
