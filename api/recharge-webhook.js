@@ -48,7 +48,7 @@ async function updateSubscription(subscriptionId, originalPrice, discountValue, 
   console.log(`✅ Existing Props: ${JSON.stringify(existingProps)}`)
 
   if (currentPriceProp === `$${originalPrice}` && currentDiscountProp === `$${discountValue}`) {
-    return console.log('⏭ Already updated in this charge, skipping')
+    return console.log('⏭ Already updated, skipping')
   }
 
   const otherProps = existingProps.filter(
@@ -87,34 +87,26 @@ export default async function handler(req, res) {
   const topic = req.headers['x-recharge-topic']
   console.log(`📩 Webhook topic: ${topic}`)
 
-  // Support charge adn order
-  const charge = req.body?.charge
-  const order = req.body?.order
-  const lineItems = charge?.line_items || order?.line_items || []
+  const data = req.body?.charge || req.body?.order || req.body
+  const lineItems = data?.line_items || []
 
-  if (!charge && !order) {
-    console.log('⏭ No charge or order data, skipping')
+  if (lineItems.length === 0) {
+    console.log('⏭ No line items, skipping')
     return res.status(200).json({ skipped: true })
   }
 
   for (const item of lineItems) {
     const itemType = (item.type || item.purchase_item_type || '').toLowerCase();
-    if (itemType === 'onetime') {
-      console.log(`⏭ Skipping onetime item`)
-      continue
-    }
+    if (itemType === 'onetime') continue
 
     const subscriptionId = item.subscription_id || item.purchase_item_id;
     const productId = item.shopify_product_id || item.external_product_id?.ecommerce;
     const variantId = item.shopify_variant_id || item.external_variant_id?.ecommerce;
 
-    if (!subscriptionId || !variantId) {
-      console.log(`⚠️ Missing IDs: Sub=${subscriptionId}, Var=${variantId}`)
-      continue
-    }
+    if (!subscriptionId || !variantId) continue;
 
     const currentPrice = parseFloat(item.unit_price || item.price)
-    console.log(`📦 Item: subscription ${subscriptionId}, variant ${variantId}`)
+    console.log(`📦 Charge item: subscription ${subscriptionId}, variant ${variantId}`)
 
     const shopifyVariant = await getShopifyVariantData(variantId)
 
@@ -125,7 +117,6 @@ export default async function handler(req, res) {
       originalPrice = Number(shopifyVariant.price)
       discountValue = Number((originalPrice - currentPrice).toFixed(2))
     } else {
-      console.log(`⚠️ Shopify fallback for product ${productId}`)
       const discountPercent = getDiscountPercent(productId)
       originalPrice = Number((currentPrice / (1 - discountPercent / 100)).toFixed(2))
       discountValue = Number((originalPrice - currentPrice).toFixed(2))
