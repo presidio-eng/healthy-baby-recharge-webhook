@@ -79,31 +79,60 @@ async function updateSubscription(subscriptionId, originalPrice, discountValue, 
   console.log(`✅ Updated subscription: ${JSON.stringify(putData)}`)
 }
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' })
+async function processSubscription(subscription) {
+  const variantId = subscription.external_variant_id?.ecommerce
+  const productId = subscription.external_product_id?.ecommerce
+  const subscriptionId = subscription.id
+  const currentPrice = parseFloat(subscription.price)
+
+  if (!subscriptionId || !variantId) {
+    console.log(`⚠️ Missing IDs: Sub=${subscriptionId}, Var=${variantId}`)
+    return
   }
 
-  const topic = req.headers['x-recharge-topic']
-  console.log(`📩 Webhook topic: ${topic}`)
+  console.log(`📦 Subscription: ${subscriptionId}, variant ${variantId}`)
 
-  const data = req.body?.charge || req.body?.order || req.body
-  const lineItems = data?.line_items || []
+  const shopifyVariant = await getShopifyVariantData(variantId)
 
-  if (lineItems.length === 0) {
-    console.log('⏭ No line items, skipping')
-    return res.status(200).json({ skipped: true })
+  let originalPrice = 0
+  let discountValue = 0
+
+  if (shopifyVariant?.price) {
+    originalPrice = Number(shopifyVariant.price)
+    discountValue = Number((originalPrice - currentPrice).toFixed(2))
+  } else {
+    console.log(`⚠️ Shopify fallback for product ${productId}`)
+    const discountPercent = getDiscountPercent(productId)
+    originalPrice = Number((currentPrice / (1 - discountPercent / 100)).toFixed(2))
+    discountValue = Number((originalPrice - currentPrice).toFixed(2))
   }
 
+  if (discountValue <= 0) {
+    console.log('⏭ 0% discount, skipping')
+    return
+  }
+
+  await updateSubscription(
+    subscriptionId,
+    originalPrice.toFixed(2),
+    discountValue.toFixed(2),
+    subscription.properties || []
+  )
+}
+
+async function processLineItems(lineItems) {
   for (const item of lineItems) {
-    const itemType = (item.type || item.purchase_item_type || '').toLowerCase();
-    if (itemType === 'onetime') continue
+    const itemType = (item.type || item.purchase_item_type || '').toLowerCase()
+    if (itemType === 'onetime') {
+      console.log(`⏭ Skipping onetime item`)
+      continue
+    }
 
-    const subscriptionId = item.subscription_id || item.purchase_item_id;
-    const productId = item.shopify_product_id || item.external_product_id?.ecommerce;
-    const variantId = item.shopify_variant_id || item.external_variant_id?.ecommerce;
+    const subscriptionId = item.subscription_id || item.purchase_item_id
+    const productId = item.shopify_product_id || item.external_product_id?.ecommerce
+    const variantId = item.shopify_variant_id || item.external_variant_id?.ecommerce
 
-    if (!subscriptionId || !variantId) continue;
+    if (!subscriptionId || !variantId) continue
 
     const currentPrice = parseFloat(item.unit_price || item.price)
     console.log(`📦 Charge item: subscription ${subscriptionId}, variant ${variantId}`)
@@ -117,6 +146,7 @@ export default async function handler(req, res) {
       originalPrice = Number(shopifyVariant.price)
       discountValue = Number((originalPrice - currentPrice).toFixed(2))
     } else {
+      console.log(`⚠️ Shopify fallback for product ${productId}`)
       const discountPercent = getDiscountPercent(productId)
       originalPrice = Number((currentPrice / (1 - discountPercent / 100)).toFixed(2))
       discountValue = Number((originalPrice - currentPrice).toFixed(2))
@@ -134,6 +164,28 @@ export default async function handler(req, res) {
       item.properties || []
     )
   }
+}
 
-  return res.status(200).json({ ok: true })
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' })
+  }
+
+  const topic = req.headers['x-recharge-topic']
+  console.log(`📩 Webhook topic: ${topic}`)
+
+  // subscription/created or subscription/updated
+  if (req.body?.subscription) {
+    await processSubscription(req.body.subscription)
+    return res.status(200).json({ ok: true })
+  }
+
+  // charge/upcoming
+  if (req.body?.charge) {
+    await processLineItems(req.body.charge.line_items || [])
+    return res.status(200).json({ ok: true })
+  }
+
+  console.log('⏭ No relevant data, skipping')
+  return res.status(200).json({ skipped: true })
 }
