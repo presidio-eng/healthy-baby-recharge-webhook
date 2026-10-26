@@ -169,7 +169,6 @@ async function processLineItems(lineItems) {
 
 const ORDER_MF_NAMESPACE = 'custom'
 const ORDER_MF_KEY = 'subscription_data'
-const ORDER_TAG = 'sub-pricing-metafield'
 
 async function shopifyGraphQL(query, variables = {}) {
   const res = await fetch(SHOPIFY_GRAPHQL_URL, {
@@ -194,21 +193,15 @@ function hasSubscriptionProps(item) {
 
 async function writeOrderMetafield(shopifyOrderId, items) {
   const orderGid = `gid://shopify/Order/${shopifyOrderId}`
-
-  // metafieldsSet перезаписує значення, тож ретраї вебхука безпечні
+  
   const data = await shopifyGraphQL(
-    `mutation ($metafields: [MetafieldsSetInput!]!, $id: ID!, $tags: [String!]!) {
+    `mutation ($metafields: [MetafieldsSetInput!]!) {
       metafieldsSet(metafields: $metafields) {
         metafields { id }
         userErrors { field message }
       }
-      tagsAdd(id: $id, tags: $tags) {
-        userErrors { field message }
-      }
     }`,
     {
-      id: orderGid,
-      tags: [ORDER_TAG],
       metafields: [
         {
           ownerId: orderGid,
@@ -221,7 +214,7 @@ async function writeOrderMetafield(shopifyOrderId, items) {
     }
   )
 
-  const errors = [...data.metafieldsSet.userErrors, ...data.tagsAdd.userErrors]
+  const errors = data.metafieldsSet.userErrors
   if (errors.length) throw new Error(`Shopify userErrors: ${JSON.stringify(errors)}`)
 }
 
@@ -240,7 +233,6 @@ async function processOrder(order) {
     const itemType = (item.purchase_item_type || item.type || '').toLowerCase()
     if (itemType === 'onetime') continue
 
-    // properties є → тема спрацювала або це рекурентне замовлення, metafield не потрібен
     if (hasSubscriptionProps(item)) continue
 
     const subscriptionId = item.purchase_item_id || item.subscription_id
