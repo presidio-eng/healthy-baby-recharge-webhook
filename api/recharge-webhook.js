@@ -169,7 +169,7 @@ async function processLineItems(lineItems) {
 
 const ORDER_MF_NAMESPACE = 'custom'
 const ORDER_MF_KEY = 'subscription_data'
-const ORDER_TAG = 'missing-sub-props'
+const ORDER_TAG = 'sub-pricing-metafield'
 
 async function shopifyGraphQL(query, variables = {}) {
   const res = await fetch(SHOPIFY_GRAPHQL_URL, {
