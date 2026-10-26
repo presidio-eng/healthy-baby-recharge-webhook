@@ -1,3 +1,5 @@
+const SHOPIFY_GRAPHQL_URL = 'https://healthynesting.myshopify.com/admin/api/2025-01/graphql.json'
+
 const PRODUCT_DISCOUNTS = {
   '7045256052785': 17,
   '7053728710705': 0,
@@ -20,17 +22,14 @@ async function getShopifyVariantData(variantId) {
   }`
 
   try {
-    const res = await fetch(
-      `https://healthynesting.myshopify.com/admin/api/2025-01/graphql.json`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': process.env.SHOPIFY_ADMIN_API_KEY,
-        },
-        body: JSON.stringify({ query }),
-      }
-    )
+    const res = await fetch(SHOPIFY_GRAPHQL_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': process.env.SHOPIFY_ADMIN_API_KEY,
+      },
+      body: JSON.stringify({ query }),
+    })
     const data = await res.json()
     const variant = data?.data?.productVariant
     console.log(`🛍 Shopify variant price=${variant?.price}`)
@@ -80,8 +79,8 @@ async function updateSubscription(subscriptionId, originalPrice, discountValue, 
 }
 
 async function processSubscription(subscription) {
-  const variantId = subscription.external_variant_id?.ecommerce
-  const productId = subscription.external_product_id?.ecommerce
+  const variantId = subscription.external_variant_id?.ecommerce || subscription.shopify_variant_id
+  const productId = subscription.external_product_id?.ecommerce || subscription.shopify_product_id
   const subscriptionId = subscription.id
   const currentPrice = parseFloat(subscription.price)
 
@@ -166,6 +165,123 @@ async function processLineItems(lineItems) {
   }
 }
 
+// ===================== NEW: order/created → Shopify order metafield =====================
+
+const ORDER_MF_NAMESPACE = 'custom'
+const ORDER_MF_KEY = 'subscription_data'
+const ORDER_TAG = 'missing-sub-props'
+
+async function shopifyGraphQL(query, variables = {}) {
+  const res = await fetch(SHOPIFY_GRAPHQL_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': process.env.SHOPIFY_ADMIN_API_KEY,
+    },
+    body: JSON.stringify({ query, variables }),
+  })
+  const json = await res.json()
+  if (!res.ok || json.errors) {
+    throw new Error(`Shopify GraphQL ${res.status}: ${JSON.stringify(json.errors || json)}`)
+  }
+  return json.data
+}
+
+function hasSubscriptionProps(item) {
+  const props = item.properties || []
+  return props.some(p => p.name === '_subscription_original_price' && p.value)
+}
+
+async function writeOrderMetafield(shopifyOrderId, items) {
+  const orderGid = `gid://shopify/Order/${shopifyOrderId}`
+
+  // metafieldsSet перезаписує значення, тож ретраї вебхука безпечні
+  const data = await shopifyGraphQL(
+    `mutation ($metafields: [MetafieldsSetInput!]!, $id: ID!, $tags: [String!]!) {
+      metafieldsSet(metafields: $metafields) {
+        metafields { id }
+        userErrors { field message }
+      }
+      tagsAdd(id: $id, tags: $tags) {
+        userErrors { field message }
+      }
+    }`,
+    {
+      id: orderGid,
+      tags: [ORDER_TAG],
+      metafields: [
+        {
+          ownerId: orderGid,
+          namespace: ORDER_MF_NAMESPACE,
+          key: ORDER_MF_KEY,
+          type: 'json',
+          value: JSON.stringify({ items }),
+        },
+      ],
+    }
+  )
+
+  const errors = [...data.metafieldsSet.userErrors, ...data.tagsAdd.userErrors]
+  if (errors.length) throw new Error(`Shopify userErrors: ${JSON.stringify(errors)}`)
+}
+
+async function processOrder(order) {
+  const shopifyOrderId = order.external_order_id?.ecommerce || order.shopify_order_id
+  if (!shopifyOrderId) {
+    console.log(`⚠️ Recharge order ${order.id}: no Shopify order id`)
+    return
+  }
+
+  console.log(`🧾 Order: Recharge ${order.id}, Shopify ${shopifyOrderId}`)
+
+  const items = []
+
+  for (const item of order.line_items || []) {
+    const itemType = (item.purchase_item_type || item.type || '').toLowerCase()
+    if (itemType === 'onetime') continue
+
+    // properties є → тема спрацювала або це рекурентне замовлення, metafield не потрібен
+    if (hasSubscriptionProps(item)) continue
+
+    const subscriptionId = item.purchase_item_id || item.subscription_id
+    const variantId = item.external_variant_id?.ecommerce || item.shopify_variant_id
+    const productId = item.external_product_id?.ecommerce || item.shopify_product_id
+    if (!subscriptionId || !variantId) continue
+
+    const currentPrice = parseFloat(item.unit_price || item.price)
+    const shopifyVariant = await getShopifyVariantData(variantId)
+
+    let originalPrice = 0
+    if (shopifyVariant?.price) {
+      originalPrice = Number(shopifyVariant.price)
+    } else {
+      console.log(`⚠️ Shopify fallback for product ${productId}`)
+      const discountPercent = getDiscountPercent(productId)
+      originalPrice = Number((currentPrice / (1 - discountPercent / 100)).toFixed(2))
+    }
+
+    const discountValue = Number((originalPrice - currentPrice).toFixed(2))
+    if (discountValue <= 0) continue
+
+    items.push({
+      product_title: item.title || null,
+      variant_title: item.variant_title || null,
+      _subscription_original_price: `$${originalPrice.toFixed(2)}`,
+      _subscription_discount: `$${discountValue.toFixed(2)}`,
+    })
+  }
+
+  if (!items.length) {
+    console.log('⏭ Order has props or no discounted subscription items, skipping')
+    return
+  }
+
+  await writeOrderMetafield(shopifyOrderId, items)
+  console.log(`✅ Metafield written to Shopify order ${shopifyOrderId}: ${JSON.stringify(items)}`)
+}
+
+// ========================================================================================
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
@@ -184,6 +300,18 @@ export default async function handler(req, res) {
   if (req.body?.charge) {
     await processLineItems(req.body.charge.line_items || [])
     return res.status(200).json({ ok: true })
+  }
+
+  // NEW: order/created
+  if (req.body?.order) {
+    try {
+      await processOrder(req.body.order)
+      return res.status(200).json({ ok: true })
+    } catch (err) {
+      console.error('❌ Order metafield failed:', err)
+      // 500 → Recharge повторить вебхук
+      return res.status(500).json({ error: 'order_processing_failed' })
+    }
   }
 
   console.log('⏭ No relevant data, skipping')
